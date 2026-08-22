@@ -1,0 +1,31 @@
+services:
+  crazyswarm2:
+    image: crazyswarm2:jazzy-pinned
+
+    network_mode: host
+    ipc: host
+
+    environment:
+      ROS_DOMAIN_ID: 42
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: "1"
+
+      # Inicialmente usamos renderizado por software.
+      # Evita meternos todavía con drivers NVIDIA/DRI en Docker.
+      LIBGL_ALWAYS_SOFTWARE: "1"
+
+    volumes:
+      - ./config:/workspace/config:ro
+      - ./scripts:/workspace/scripts:ro
+      - /dev/bus/usb:/dev/bus/usb
+
+      # Ventanas gráficas X11 del host
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+    device_cgroup_rules:
+      - 'c 189:* rwm'
+
+    stdin_open: true
+    tty: true
+
+    working_dir: /opt/crazyswarm2_ws
