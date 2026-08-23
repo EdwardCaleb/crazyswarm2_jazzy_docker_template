@@ -1,6 +1,6 @@
 # Crazyswarm2 + ROS 2 Jazzy Docker Template
 
-Minimal setup for running **Crazyswarm2**, **ROS 2 Jazzy**, **OptiTrack/Motive**, **Crazyradio PA**, **RViz2**, and Crazyflie/Bolt vehicles inside Docker on Ubuntu 24.04.
+Minimal Docker setup for running **Crazyswarm2**, **ROS 2 Jazzy**, **OptiTrack/Motive**, **Crazyradio PA**, **RViz2**, and custom Crazyflie/Bolt waypoint experiments on Ubuntu 24.04.
 
 ## Requirements
 
@@ -8,7 +8,8 @@ Minimal setup for running **Crazyswarm2**, **ROS 2 Jazzy**, **OptiTrack/Motive**
 - Docker Engine + Docker Compose
 - Crazyradio PA
 - OptiTrack Motive on the same network as the host
-- X11 desktop session for RViz
+- X11 desktop session for RViz2
+- Crazyflie/Bolt vehicles configured with unique radio URIs
 
 ## 1. Clone
 
@@ -17,7 +18,7 @@ git clone <YOUR_REPOSITORY_URL>
 cd crazyswarm2_jazzy_docker_template
 ```
 
-The project pins Crazyswarm2 through `.env`:
+Crazyswarm2 is pinned through `.env`:
 
 ```bash
 CRAZYSWARM2_REF=fcf51e27fe675bbdb564a40f4ca1ee4336c062ea
@@ -40,22 +41,24 @@ Set the Motive IP address:
     hostname: "192.168.0.4"
 ```
 
-Rigid body names in Motive must match the robot names in the Crazyflie configuration, for example:
+Rigid body names in Motive must match the robot names in `config/crazyflies.yaml`, for example:
 
 ```text
 cf_1
 cf_2
+cf_4
+cf_7
 ```
 
-## 3. Configure the Crazyflies
+## 3. Configure the drones
 
 Edit:
 
 ```bash
-nano config/crazyflies_link_test.yaml
+nano config/crazyflies.yaml
 ```
 
-Set your robot URIs and enable the vehicles you want to use:
+Example:
 
 ```yaml
 robots:
@@ -72,7 +75,7 @@ robots:
     type: bolt_3in_2s
 ```
 
-For OptiTrack-based flight, the current setup uses:
+The current OptiTrack flight configuration uses:
 
 ```yaml
 firmware_params:
@@ -86,7 +89,7 @@ firmware_params:
     extQuatStdDev: 0.05
 ```
 
-## 4. Build the image
+## 4. Build the Docker image
 
 ```bash
 source .env
@@ -98,80 +101,64 @@ docker build \
   .
 ```
 
-## 5. Allow RViz to open from Docker
+## 5. Start the stack
 
-On the host:
-
-```bash
-xhost +SI:localuser:root
-```
-
-## 6. Start the container
+Make the helper scripts executable once:
 
 ```bash
-docker compose run --rm \
-  --name crazyswarm2_dev \
-  crazyswarm2 \
-  bash
+chmod +x docker/start.sh docker/shell.sh
 ```
 
-Inside the container:
+Start Crazyswarm2, OptiTrack tracking, and RViz2:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source /opt/crazyswarm2_ws/install/setup.bash
+./docker/start.sh
 ```
 
-Optional Crazyradio check:
-
-```bash
-lsusb | grep 1915:7777
-```
-
-## 7. Launch Crazyswarm2
-
-Inside the container:
-
-```bash
-ros2 launch crazyflie launch.py \
-  backend:=cflib \
-  mocap:=True \
-  teleop:=False \
-  rviz:=True \
-  crazyflies_yaml_file:=/workspace/config/crazyflies_link_test.yaml \
-  motion_capture_yaml_file:=/workspace/config/motion_capture.yaml
-```
-
-In RViz set:
+In RViz2 set:
 
 ```text
 Fixed Frame = mocap
 ```
 
-## 8. Open a second shell
+You should see the OptiTrack frames such as:
+
+```text
+cf_1_mocap
+cf_2_mocap
+```
+
+## 6. Open a ROS shell
 
 From another host terminal:
 
 ```bash
-docker exec -it crazyswarm2_dev bash
+./docker/shell.sh
 ```
 
-Inside:
+All ROS commands below are executed inside this shell.
+
+Check the active nodes:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source /opt/crazyswarm2_ws/install/setup.bash
+ros2 node list
 ```
 
-Check OptiTrack data:
+Check OptiTrack:
 
 ```bash
 ros2 topic echo /poses --once
 ```
 
-## 9. Arm, take off, and land
+Check a drone pose estimate:
 
-Arm all enabled vehicles:
+```bash
+ros2 topic echo /cf_1/pose --once
+```
+
+## 7. Basic takeoff and landing
+
+Arm all enabled drones:
 
 ```bash
 ros2 service call /all/arm \
@@ -203,33 +190,51 @@ ros2 service call /all/arm \
   "{arm: false}"
 ```
 
-## 10. Run the Crazyswarm2 example
+## 8. Run the upstream Crazyswarm2 example
 
-With the server still running:
+With the server already running:
 
 ```bash
 ros2 run crazyflie_examples hello_world
 ```
 
-For a first test, enable only one vehicle in `crazyflies_link_test.yaml`.
+For a first test, enable only one drone in `config/crazyflies.yaml`.
 
-## 11. Run the custom waypoint script
+## 9. Custom waypoint experiments
+
+The `scripts/` directory is mounted directly into the container, so scripts can be edited on the host and executed without rebuilding the image.
+
+### Single drone with `goTo()`
 
 ```bash
 python3 /workspace/scripts/waypoints_goto.py
 ```
 
-Edit it directly on the host:
+### Multiple drones with `goTo()`
 
 ```bash
-nano scripts/waypoints_goto.py
+python3 /workspace/scripts/waypoints_multi_drones.py
 ```
 
-Changes under `config/` and `scripts/` do not require rebuilding the Docker image.
+### Single drone with `cmdFullState()`
 
-## Emergency stop
+```bash
+python3 /workspace/scripts/waypoints_full_state.py
+```
 
-If communication is still available:
+### Multiple drones with `cmdFullState()`
+
+```bash
+python3 /workspace/scripts/waypoints_full_state_multi.py
+```
+
+The `cmdFullState()` scripts generate smooth seventh-order polynomial segments and continuously stream position, velocity, and acceleration setpoints at 30 Hz.
+
+For the transition back to high-level landing, the scripts call `notifySetpointsStop()` and immediately send the landing command without inserting a delay between them.
+
+## 10. Emergency stop
+
+If the radio connection is still available:
 
 ```bash
 ros2 service call /all/emergency \
@@ -237,18 +242,34 @@ ros2 service call /all/emergency \
   "{}"
 ```
 
-This immediately cuts motor power. It is not a controlled landing.
+This cuts motor power immediately. It is not a controlled landing.
+
+The custom waypoint scripts also use `Ctrl+C` as an emergency stop while they are running.
+
+A firmware-side radio-loss watchdog is **not yet integrated** into this template.
+
+## 11. Typical workflow
+
+Terminal 1:
+
+```bash
+cd ~/docker_projects/crazyswarm2_jazzy_docker_template
+./docker/start.sh
+```
+
+Terminal 2:
+
+```bash
+cd ~/docker_projects/crazyswarm2_jazzy_docker_template
+./docker/shell.sh
+```
+
+Then execute the desired experiment, for example:
+
+```bash
+python3 /workspace/scripts/waypoints_full_state_multi.py
+```
 
 ## Stop
 
-Stop the launch with `Ctrl+C`, then exit the container:
-
-```bash
-exit
-```
-
-Revoke X11 access if desired:
-
-```bash
-xhost -SI:localuser:root
-```
+Stop the launch with `Ctrl+C` in the terminal running `docker/start.sh`.

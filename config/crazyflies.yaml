@@ -9,8 +9,20 @@ robots:
     type: bolt_3in_2s
 
   cf_2:
-    enabled: true
+    enabled: false
     uri: radio://0/80/2M/E7E7E7EA02
+    initial_position: [0.0, 0.0, 0.0]
+    type: bolt_3in_2s
+
+  cf_3:
+    enabled: false
+    uri: radio://0/80/2M/E7E7E7EA03
+    initial_position: [0.0, 0.0, 0.0]
+    type: bolt_3in_2s
+
+  cf_4:
+    enabled: true
+    uri: radio://0/80/2M/E7E7E7EA04
     initial_position: [0.0, 0.0, 0.0]
     type: bolt_3in_2s
 
@@ -129,23 +141,15 @@ all:
   firmware_params:
     commander:
       enHighLevel: 1
+
     stabilizer:
       estimator: 2 # 1: complementary, 2: kalman
       controller: 2 # 1: PID, 2: mellinger
-    # ring:
-    #   effect: 16 # 6: double spinner, 7: solid color, 16: packetRate
-    #   solidBlue: 255 # if set to solid color
-    #   solidGreen: 0 # if set to solid color
-    #   solidRed: 0 # if set to solid color
-    #   headlightEnable: 0
+
     locSrv:
       extPosStdDev: 1e-3
-      extQuatStdDev: 0.5e-1
-    # kalman:
-    #   resetEstimation: 1
-  # reference frame for on-board state-estimate of all drones (use robot_types/type_name to set per type, or
-  # robots/drone_name to set per drone)
-  reference_frame: "world"
+      extQuatStdDev: 0.05
+
   broadcasts:
     num_repeats: 15 # number of times broadcast commands are repeated
     delay_between_repeats_ms: 1 # delay in milliseconds between individual repeats
