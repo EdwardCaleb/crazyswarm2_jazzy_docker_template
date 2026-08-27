@@ -2,6 +2,7 @@ FROM ros:jazzy-ros-base-noble
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG CRAZYSWARM2_REF
+ARG CRAZYFLIE_FIRMWARE_REF
 
 SHELL ["/bin/bash", "-c"]
 
@@ -13,8 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     python3-pip \
+    python3-setuptools \
     python3-rosdep \
     python3-colcon-common-extensions \
+    python3-dev \
+    build-essential \
+    swig \
     libboost-program-options-dev \
     libusb-1.0-0-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -64,7 +69,7 @@ RUN mkdir -p /opt/crazyswarm2_ws/src
 
 
 # ------------------------------------------------------------
-# 4. Clonar y hacer checkout DEL COMMIT EXACTO
+# 4. Clonar Crazyswarm2 y hacer checkout DEL COMMIT EXACTO
 # ------------------------------------------------------------
 RUN test -n "${CRAZYSWARM2_REF}" \
     && git clone \
@@ -121,6 +126,32 @@ RUN cd /opt/crazyswarm2_ws \
     && colcon build \
         --symlink-install \
         --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+
+
+# ------------------------------------------------------------
+# Crazyflie firmware Python bindings
+#
+# Required by the Crazyswarm2 software-in-the-loop simulator.
+# ------------------------------------------------------------
+RUN test -n "${CRAZYFLIE_FIRMWARE_REF}" \
+    && git clone \
+        https://github.com/bitcraze/crazyflie-firmware.git \
+        /opt/crazyflie-firmware \
+    && cd /opt/crazyflie-firmware \
+    && git checkout "${CRAZYFLIE_FIRMWARE_REF}" \
+    && git submodule update --init --recursive \
+    && echo "Pinned Crazyflie firmware commit:" \
+    && git rev-parse HEAD \
+    && make cf2_defconfig \
+    && make bindings_python
+
+ENV PYTHONPATH=/opt/crazyflie-firmware/build
+
+RUN python3 -c \
+    "import cffirmware, _cffirmware; \
+     print('cffirmware OK:', cffirmware.__file__); \
+     print('_cffirmware OK:', _cffirmware.__file__)"
 
 
 

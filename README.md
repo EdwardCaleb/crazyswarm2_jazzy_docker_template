@@ -1,56 +1,75 @@
 # Crazyswarm2 + ROS 2 Jazzy Docker Template
 
-Minimal Docker setup for running **Crazyswarm2**, **ROS 2 Jazzy**, **OptiTrack/Motive**, **Crazyradio PA**, **RViz2**, and custom Crazyflie/Bolt waypoint experiments on Ubuntu 24.04.
+Docker-based development environment for **Crazyswarm2**, **ROS 2 Jazzy**, **Crazyradio PA**, **OptiTrack/Motive**, **RViz2**, and the Crazyswarm2 software-in-the-loop simulator.
 
-## Requirements
+The project uses the same robot configuration and trajectory scripts for both **real flights** and **simulation**.
 
-- Ubuntu 24.04
-- Docker Engine + Docker Compose
-- Crazyradio PA
-- OptiTrack Motive on the same network as the host
-- X11 desktop session for RViz2
-- Crazyflie/Bolt vehicles configured with unique radio URIs
+## Features
 
-## 1. Clone
+- ROS 2 Jazzy on Ubuntu 24.04
+- Crazyswarm2 pinned to an exact commit
+- Crazyflie firmware Python bindings for Crazyswarm2 simulation
+- Crazyradio PA USB access from Docker
+- OptiTrack/Motive motion capture
+- RViz2 inside Docker
+- Real and simulation launch modes
+- Single- and multi-drone `goTo()` experiments
+- Unified multi-drone `cmdFullState()` trajectory runner
+- Smooth seventh-order waypoint interpolation
+- Circle, square, sine-wave, figure-eight, and harmonic oscillation trajectories
+- `xy`, `xz`, and `yz` trajectory planes
+- `Ctrl+C` emergency stop for real-flight full-state experiments
 
-```bash
-git clone <YOUR_REPOSITORY_URL>
-cd crazyswarm2_jazzy_docker_template
+## Project layout
+
+```text
+crazyswarm2_jazzy_docker_template/
+├── .env
+├── compose.yaml
+├── config/
+│   ├── crazyflies.yaml
+│   ├── crazyflies.yaml.upstream
+│   └── motion_capture.yaml
+├── docker/
+│   ├── Dockerfile
+│   ├── requirements-python.txt
+│   ├── start.sh
+│   └── shell.sh
+├── scripts/
+│   ├── waypoints_goto.py
+│   ├── waypoints_multi_drones.py
+│   └── full_state.py
+└── ros2_ws/
+    └── src/
 ```
 
-Crazyswarm2 is pinned through `.env`:
+## 1. Requirements
+
+- Ubuntu 24.04
+- Docker Engine
+- Docker Compose
+- X11 desktop session for RViz2
+
+For real flight:
+
+- Crazyradio PA
+- Crazyflie/Bolt vehicles with unique radio URIs
+- OptiTrack Motive reachable from the Ubuntu host
+
+Simulation does not require Crazyradio, OptiTrack, or powered vehicles.
+
+## 2. Pinned upstream versions
+
+The `.env` file pins both Crazyswarm2 and the Crazyflie firmware used for the simulator:
 
 ```bash
 CRAZYSWARM2_REF=fcf51e27fe675bbdb564a40f4ca1ee4336c062ea
+CRAZYFLIE_FIRMWARE_REF=16c5630707e92830dcd16455a57b5560e5838735
 ```
 
-## 2. Configure OptiTrack
+This keeps the Docker image reproducible.
 
-Edit:
-
-```bash
-nano config/motion_capture.yaml
-```
-
-Set the Motive IP address:
-
-```yaml
-/motion_capture_tracking:
-  ros__parameters:
-    type: "optitrack"
-    hostname: "192.168.0.4"
-```
-
-Rigid body names in Motive must match the robot names in `config/crazyflies.yaml`, for example:
-
-```text
-cf_1
-cf_2
-cf_4
-cf_7
-```
-
-## 3. Configure the drones
+## 3. Configure the robots
 
 Edit:
 
@@ -65,17 +84,27 @@ robots:
   cf_1:
     enabled: true
     uri: radio://0/80/2M/E7E7E7EA01
+    initial_position: [0.0, 0.5, 0.0]
+    type: bolt_3in_2s
+
+  cf_4:
+    enabled: true
+    uri: radio://0/80/2M/XXXXXXXXXX
     initial_position: [0.0, 0.0, 0.0]
     type: bolt_3in_2s
 
-  cf_2:
+  cf_7:
     enabled: true
-    uri: radio://0/80/2M/E7E7E7EA02
-    initial_position: [0.0, 0.0, 0.0]
+    uri: radio://0/80/2M/YYYYYYYYYY
+    initial_position: [0.0, -0.5, 0.0]
     type: bolt_3in_2s
 ```
 
-The current OptiTrack flight configuration uses:
+The same `config/crazyflies.yaml` is used by both the real and simulation backends.
+
+`initial_position` is especially important in simulation because it determines where each simulated drone starts. For real `cmdFullState()` experiments, the scripts use the measured pose after takeoff.
+
+The current Bolt configuration uses the high-level commander, Kalman estimator, and PID controller:
 
 ```yaml
 firmware_params:
@@ -89,19 +118,49 @@ firmware_params:
     extQuatStdDev: 0.05
 ```
 
-## 4. Build the Docker image
+## 4. Configure OptiTrack
+
+Real-flight mode uses:
+
+```text
+config/motion_capture.yaml
+```
+
+Set the Motive server address, for example:
+
+```yaml
+/motion_capture_tracking:
+  ros__parameters:
+    type: "optitrack"
+    hostname: "192.168.0.4"
+```
+
+Rigid-body names in Motive must match the robot names in `crazyflies.yaml`, for example:
+
+```text
+cf_1
+cf_4
+cf_7
+```
+
+Simulation does not launch the motion-capture node.
+
+## 5. Build the Docker image
 
 ```bash
 source .env
 
 docker build \
   --build-arg CRAZYSWARM2_REF="$CRAZYSWARM2_REF" \
+  --build-arg CRAZYFLIE_FIRMWARE_REF="$CRAZYFLIE_FIRMWARE_REF" \
   -t crazyswarm2:jazzy-pinned \
   -f docker/Dockerfile \
   .
 ```
 
-## 5. Start the stack
+The image builds Crazyswarm2 and also compiles the Crazyflie firmware Python bindings required by `crazyflie_sim`.
+
+## 6. Helper scripts
 
 Make the helper scripts executable once:
 
@@ -109,54 +168,76 @@ Make the helper scripts executable once:
 chmod +x docker/start.sh docker/shell.sh
 ```
 
-Start Crazyswarm2, OptiTrack tracking, and RViz2:
+### Real hardware
 
 ```bash
-./docker/start.sh
+./docker/start.sh --real
 ```
 
-In RViz2 set:
+This starts:
+
+```text
+backend = cflib
+mocap   = True
+rviz    = True
+```
+
+In RViz2, use:
 
 ```text
 Fixed Frame = mocap
 ```
 
-You should see the OptiTrack frames such as:
+### Simulation
 
-```text
-cf_1_mocap
-cf_2_mocap
+```bash
+./docker/start.sh --sim
 ```
 
-## 6. Open a ROS shell
+This starts:
 
-From another host terminal:
+```text
+backend = sim
+mocap   = False
+rviz    = True
+```
+
+In RViz2, use:
+
+```text
+Fixed Frame = world
+```
+
+Both modes use:
+
+```text
+config/crazyflies.yaml
+```
+
+## 7. Open a ROS shell
+
+With either mode running:
 
 ```bash
 ./docker/shell.sh
 ```
 
-All ROS commands below are executed inside this shell.
+This opens a shell inside the active `crazyswarm2_dev` container and sources ROS 2 and Crazyswarm2.
 
-Check the active nodes:
+Example checks:
 
 ```bash
 ros2 node list
+ros2 topic list
 ```
 
-Check OptiTrack:
+For real OptiTrack operation:
 
 ```bash
 ros2 topic echo /poses --once
 ```
 
-Check a drone pose estimate:
-
-```bash
-ros2 topic echo /cf_1/pose --once
-```
-
-## 7. Basic takeoff and landing
+## 8. Basic real-flight commands
 
 Arm all enabled drones:
 
@@ -166,7 +247,7 @@ ros2 service call /all/arm \
   "{arm: true}"
 ```
 
-Take off to 30 cm:
+Take off:
 
 ```bash
 ros2 service call /all/takeoff \
@@ -190,51 +271,249 @@ ros2 service call /all/arm \
   "{arm: false}"
 ```
 
-## 8. Run the upstream Crazyswarm2 example
+## 9. `goTo()` waypoint experiments
 
-With the server already running:
-
-```bash
-ros2 run crazyflie_examples hello_world
-```
-
-For a first test, enable only one drone in `config/crazyflies.yaml`.
-
-## 9. Custom waypoint experiments
-
-The `scripts/` directory is mounted directly into the container, so scripts can be edited on the host and executed without rebuilding the image.
-
-### Single drone with `goTo()`
+Single drone:
 
 ```bash
 python3 /workspace/scripts/waypoints_goto.py
 ```
 
-### Multiple drones with `goTo()`
+Multiple drones:
 
 ```bash
 python3 /workspace/scripts/waypoints_multi_drones.py
 ```
 
-### Single drone with `cmdFullState()`
+These use the Crazyflie high-level commander, which generates the trajectory onboard.
 
-```bash
-python3 /workspace/scripts/waypoints_full_state.py
+## 10. Unified `cmdFullState()` trajectory runner
+
+The main full-state experiment is:
+
+```text
+scripts/full_state.py
 ```
 
-### Multiple drones with `cmdFullState()`
+It supports both real and simulated execution:
 
 ```bash
-python3 /workspace/scripts/waypoints_full_state_multi.py
+python3 /workspace/scripts/full_state.py --mode real ...
 ```
 
-The `cmdFullState()` scripts generate smooth seventh-order polynomial segments and continuously stream position, velocity, and acceleration setpoints at 30 Hz.
+or:
 
-For the transition back to high-level landing, the scripts call `notifySetpointsStop()` and immediately send the landing command without inserting a delay between them.
+```bash
+python3 /workspace/scripts/full_state.py --mode sim ...
+```
 
-## 10. Emergency stop
+Select one or more drones with:
 
-If the radio connection is still available:
+```bash
+--drones cf_1 cf_4 cf_7
+```
+
+The script streams full-state setpoints at 30 Hz:
+
+```text
+position
+velocity
+acceleration
+yaw
+angular velocity
+```
+
+### Waypoints
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory waypoints \
+  --drones cf_1 cf_4 cf_7
+```
+
+Waypoint segments use seventh-order interpolation with zero velocity, acceleration, and jerk at the segment boundaries.
+
+### Circle
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory circle \
+  --drones cf_1 cf_4 cf_7 \
+  --plane xy \
+  --radius 0.25 \
+  --frequency 0.10 \
+  --cycles 2
+```
+
+### Square
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory square \
+  --drones cf_1 cf_4 cf_7 \
+  --plane xy \
+  --side 0.40 \
+  --frequency 0.10 \
+  --cycles 1
+```
+
+### Spatial sine wave
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory sine \
+  --drones cf_1 cf_4 cf_7 \
+  --plane xy \
+  --amplitude 0.15 \
+  --length 0.80 \
+  --frequency 0.15 \
+  --cycles 2
+```
+
+This is a spatial wave: one trajectory coordinate advances while the other follows a sinusoidal shape.
+
+### Figure eight
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory figure8 \
+  --drones cf_1 cf_4 cf_7 \
+  --plane xy \
+  --distance 0.50 \
+  --frequency 0.10 \
+  --cycles 2
+```
+
+### Harmonic oscillation
+
+Use `oscillate` for simple harmonic motion around a point:
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory oscillate \
+  --drones cf_1 cf_4 cf_7 \
+  --axis x \
+  --amplitude 0.15 \
+  --frequency 0.25 \
+  --cycles 3
+```
+
+The oscillation can use:
+
+```text
+--axis x
+--axis y
+--axis z
+```
+
+Optionally choose a center:
+
+```bash
+--center 0.5 0.0 0.5
+```
+
+For multiple drones, `--center` translates the center of the formation while preserving the relative spacing between drones.
+
+## 11. Trajectory planes
+
+The 2D trajectories support:
+
+```text
+--plane xy
+--plane xz
+--plane yz
+```
+
+For example:
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory circle \
+  --drones cf_1 \
+  --plane xz \
+  --radius 0.10 \
+  --frequency 0.10
+```
+
+The script checks the planned minimum Z before entering full-state streaming and rejects trajectories that would go below the configured safe minimum altitude.
+
+## 12. Test in simulation first
+
+A typical workflow is:
+
+Terminal 1:
+
+```bash
+./docker/start.sh --sim
+```
+
+Terminal 2:
+
+```bash
+./docker/shell.sh
+```
+
+Then:
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory figure8 \
+  --drones cf_1 cf_4 cf_7 \
+  --plane xy \
+  --distance 0.50 \
+  --frequency 0.10 \
+  --cycles 2
+```
+
+After validating the geometry, timing, spacing, and altitude in RViz2, launch the real stack:
+
+```bash
+./docker/start.sh --real
+```
+
+and run the same trajectory with:
+
+```bash
+--mode real
+```
+
+Simulation is useful for trajectory validation, but it is not a complete physical model of a custom Bolt + 3-inch propeller + 2S vehicle. A trajectory that works in simulation still needs conservative real-flight testing.
+
+## 13. Full-state control transition
+
+During a full-state trajectory the script continuously streams setpoints.
+
+At the end it transitions back to the high-level commander using:
+
+```text
+last cmdFullState
+       ↓
+notifySetpointsStop(remainValidMillisecs=200)
+       ↓
+land() immediately
+```
+
+There is intentionally no delay between `notifySetpointsStop()` and `land()`. This avoids a gap in commanded state during the transition.
+
+## 14. Emergency stop
+
+For real hardware, while a full-state experiment is running:
+
+```text
+Ctrl+C
+```
+
+requests an emergency stop for the selected drones.
+
+You can also call:
 
 ```bash
 ros2 service call /all/emergency \
@@ -242,34 +521,60 @@ ros2 service call /all/emergency \
   "{}"
 ```
 
-This cuts motor power immediately. It is not a controlled landing.
+Emergency stop cuts motor power immediately. It is not a controlled landing, and the vehicles must be rebooted before normal flight resumes.
 
-The custom waypoint scripts also use `Ctrl+C` as an emergency stop while they are running.
+A firmware-side radio-loss watchdog is not yet integrated into this template.
 
-A firmware-side radio-loss watchdog is **not yet integrated** into this template.
+## 15. Recommended workflow
 
-## 11. Typical workflow
+### Simulation
 
 Terminal 1:
 
 ```bash
-cd ~/docker_projects/crazyswarm2_jazzy_docker_template
-./docker/start.sh
+./docker/start.sh --sim
 ```
 
 Terminal 2:
 
 ```bash
-cd ~/docker_projects/crazyswarm2_jazzy_docker_template
 ./docker/shell.sh
 ```
 
-Then execute the desired experiment, for example:
+Then run:
 
 ```bash
-python3 /workspace/scripts/waypoints_full_state_multi.py
+python3 /workspace/scripts/full_state.py \
+  --mode sim \
+  --trajectory <trajectory> \
+  --drones <names>
 ```
 
-## Stop
+### Real flight
 
-Stop the launch with `Ctrl+C` in the terminal running `docker/start.sh`.
+Terminal 1:
+
+```bash
+./docker/start.sh --real
+```
+
+Terminal 2:
+
+```bash
+./docker/shell.sh
+```
+
+Then run the same experiment with:
+
+```bash
+python3 /workspace/scripts/full_state.py \
+  --mode real \
+  --trajectory <trajectory> \
+  --drones <names>
+```
+
+## Safety
+
+Use simulation first, keep initial real-flight trajectories slow and spatially separated, and verify that complete path segments do not intersect.
+
+`Ctrl+C` emergency handling still depends on a working ROS → Crazyradio → Crazyflie communication path. It does not replace an onboard radio-loss watchdog.

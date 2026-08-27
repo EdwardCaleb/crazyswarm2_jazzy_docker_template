@@ -4,28 +4,33 @@ fileversion: 3
 robots:
   cf_1:
     enabled: true
-    uri: radio://0/80/2M/E7E7E7EA01
+    uri: radio://0/80/2M/E7E7E7E701
     initial_position: [0.0, 0.0, 0.0]
     type: bolt_3in_2s
 
   cf_2:
     enabled: false
-    uri: radio://0/80/2M/E7E7E7EA02
+    uri: radio://0/80/2M/E7E7E7E702
     initial_position: [0.0, 0.0, 0.0]
     type: bolt_3in_2s
 
   cf_3:
     enabled: false
-    uri: radio://0/80/2M/E7E7E7EA03
+    uri: radio://0/80/2M/E7E7E7E703
     initial_position: [0.0, 0.0, 0.0]
     type: bolt_3in_2s
 
   cf_4:
-    enabled: true
-    uri: radio://0/80/2M/E7E7E7EA04
-    initial_position: [0.0, 0.0, 0.0]
+    enabled: false
+    uri: radio://0/80/2M/E7E7E7E704
+    initial_position: [0.0, -1.4, 0.0]
     type: bolt_3in_2s
 
+  cf_7:
+    enabled: false
+    uri: radio://0/90/2M/E7E7E7E707
+    initial_position: [0.0, 0.0, 0.0]
+    type: bolt_3in_2s
 
 
 # robots:
