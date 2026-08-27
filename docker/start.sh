@@ -5,6 +5,9 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+PROJECT_NAME="$(basename "$PROJECT_ROOT")"
+CONTAINER_NAME="${PROJECT_NAME}_dev"
+
 MODE="${1:-}"
 
 case "$MODE" in
@@ -24,13 +27,15 @@ case "$MODE" in
     ;;
 esac
 
+echo "Project:   $PROJECT_NAME"
+echo "Container: $CONTAINER_NAME"
+echo "Mode:      $MODE"
 
 # Allow GUI applications inside Docker to use the host X server.
 xhost +SI:localuser:root >/dev/null
 
-
 docker compose run --rm \
-  --name crazyswarm2_dev \
+  --name "$CONTAINER_NAME" \
   crazyswarm2 \
   bash -lc "
     source /opt/ros/jazzy/setup.bash
