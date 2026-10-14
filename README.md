@@ -12,13 +12,16 @@ The project uses the same robot configuration and trajectory scripts for both **
 - Crazyradio PA USB access from Docker
 - OptiTrack/Motive motion capture
 - RViz2 inside Docker
-- Real and simulation launch modes
+- Independent Docker and ROS lifecycles
+- Project-specific container names
+- Real and simulation ROS launch modes
 - Single- and multi-drone `goTo()` experiments
 - Unified multi-drone `cmdFullState()` trajectory runner
 - Smooth seventh-order waypoint interpolation
 - Circle, square, sine-wave, figure-eight, and harmonic oscillation trajectories
 - `xy`, `xz`, and `yz` trajectory planes
 - `Ctrl+C` emergency stop for real-flight full-state experiments
+- Remote Crazyflie reboot through Crazyradio after an emergency stop
 
 ## Project layout
 
@@ -34,11 +37,14 @@ crazyswarm2_jazzy_docker_template/
 │   ├── Dockerfile
 │   ├── requirements-python.txt
 │   ├── start.sh
-│   └── shell.sh
+│   ├── ros.sh
+│   ├── shell.sh
+│   └── reset.sh
 ├── scripts/
 │   ├── waypoints_goto.py
 │   ├── waypoints_multi_drones.py
-│   └── full_state.py
+│   ├── full_state.py
+│   └── reset.py
 └── ros2_ws/
     └── src/
 ```
@@ -160,21 +166,63 @@ docker build \
 
 The image builds Crazyswarm2 and also compiles the Crazyflie firmware Python bindings required by `crazyflie_sim`.
 
-## 6. Helper scripts
+## 6. Docker and ROS helper scripts
 
 Make the helper scripts executable once:
 
 ```bash
-chmod +x docker/start.sh docker/shell.sh
+chmod +x docker/start.sh docker/ros.sh docker/shell.sh docker/reset.sh
 ```
 
-### Real hardware
+The Docker container and ROS launch process have separate lifecycles:
+
+| Command | Purpose |
+| --- | --- |
+| `./docker/start.sh` | Start and keep the project container alive |
+| `./docker/ros.sh --real` | Start Crazyswarm2 with real hardware, OptiTrack, and RViz |
+| `./docker/ros.sh --sim` | Start Crazyswarm2 simulation and RViz |
+| `./docker/shell.sh` | Open an additional shell inside the running container |
+| `./docker/reset.sh [drones...]` | Reboot Crazyflies remotely through Crazyradio |
+
+### Project-specific container names
+
+The helper scripts derive the container name from the project directory:
+
+```text
+<project-directory-name>_dev
+```
+
+For example:
+
+```text
+~/docker_projects/crazyswarm2_jazzy_docker_template
+    ↓
+crazyswarm2_jazzy_docker_template_dev
+```
+
+This allows multiple copies of the template with different directory names to run without sharing the same container name.
+
+### Start the Docker environment
+
+Terminal 1:
 
 ```bash
-./docker/start.sh --real
+./docker/start.sh
 ```
 
-This starts:
+`start.sh` only starts the container and keeps it alive. It does **not** start ROS.
+
+The container stays alive through its main `sleep infinity` process. Pressing `Ctrl+C` in this terminal stops the container and therefore also terminates ROS processes and any shells attached to it.
+
+### Start ROS for real hardware
+
+With the container already running, open Terminal 2:
+
+```bash
+./docker/ros.sh --real
+```
+
+This launches:
 
 ```text
 backend = cflib
@@ -188,13 +236,15 @@ In RViz2, use:
 Fixed Frame = mocap
 ```
 
-### Simulation
+### Start ROS simulation
+
+With the container already running:
 
 ```bash
-./docker/start.sh --sim
+./docker/ros.sh --sim
 ```
 
-This starts:
+This launches:
 
 ```text
 backend = sim
@@ -208,23 +258,27 @@ In RViz2, use:
 Fixed Frame = world
 ```
 
-Both modes use:
+Both ROS modes use:
 
 ```text
 config/crazyflies.yaml
 ```
 
-## 7. Open a ROS shell
+Pressing `Ctrl+C` in the `ros.sh` terminal stops ROS and RViz but leaves the Docker container and other `shell.sh` sessions running. ROS can then be started again without recreating the container.
 
-With either mode running:
+## 7. Open a work shell
+
+With `./docker/start.sh` running:
 
 ```bash
 ./docker/shell.sh
 ```
 
-This opens a shell inside the active `crazyswarm2_dev` container and sources ROS 2 and Crazyswarm2.
+This opens an additional shell inside the project-specific container and sources ROS 2 and Crazyswarm2.
 
-Example checks:
+You can open multiple work shells at the same time.
+
+Example checks after ROS is running:
 
 ```bash
 ros2 node list
@@ -235,6 +289,15 @@ For real OptiTrack operation:
 
 ```bash
 ros2 topic echo /poses --once
+```
+
+A typical terminal layout is:
+
+```text
+Terminal 1   ./docker/start.sh
+Terminal 2   ./docker/ros.sh --real   or --sim
+Terminal 3   ./docker/shell.sh        trajectory experiments
+Terminal 4   ./docker/shell.sh        ROS diagnostics
 ```
 
 ## 8. Basic real-flight commands
@@ -404,7 +467,7 @@ python3 /workspace/scripts/full_state.py \
   --cycles 3
 ```
 
-The oscillation can use:
+Available axes:
 
 ```text
 --axis x
@@ -446,21 +509,25 @@ The script checks the planned minimum Z before entering full-state streaming and
 
 ## 12. Test in simulation first
 
-A typical workflow is:
-
-Terminal 1:
+Terminal 1 — start Docker:
 
 ```bash
-./docker/start.sh --sim
+./docker/start.sh
 ```
 
-Terminal 2:
+Terminal 2 — start simulation:
+
+```bash
+./docker/ros.sh --sim
+```
+
+Terminal 3 — open a work shell:
 
 ```bash
 ./docker/shell.sh
 ```
 
-Then:
+Then run, for example:
 
 ```bash
 python3 /workspace/scripts/full_state.py \
@@ -473,13 +540,15 @@ python3 /workspace/scripts/full_state.py \
   --cycles 2
 ```
 
-After validating the geometry, timing, spacing, and altitude in RViz2, launch the real stack:
+After validating geometry, timing, spacing, and altitude in RViz2, stop only the ROS simulation with `Ctrl+C` in Terminal 2.
+
+Then restart ROS for hardware without recreating the container:
 
 ```bash
-./docker/start.sh --real
+./docker/ros.sh --real
 ```
 
-and run the same trajectory with:
+Run the same trajectory with:
 
 ```bash
 --mode real
@@ -521,27 +590,80 @@ ros2 service call /all/emergency \
   "{}"
 ```
 
-Emergency stop cuts motor power immediately. It is not a controlled landing, and the vehicles must be rebooted before normal flight resumes.
+Emergency stop cuts motor power immediately. It is not a controlled landing.
+
+After an emergency stop, the firmware remains latched and must be rebooted before normal flight resumes.
 
 A firmware-side radio-loss watchdog is not yet integrated into this template.
 
-## 15. Recommended workflow
+## 15. Remote reboot through Crazyradio
+
+A normal `land()` followed by disarm does **not** require a reboot.
+
+The remote reboot utility is primarily intended for recovery after an emergency stop.
+
+Because `scripts/reset.py` opens Crazyradio directly through CFlib, the Crazyswarm2 container must not be using the radio at the same time.
+
+After an emergency:
+
+1. Stop ROS if it is still running.
+2. Stop the main Docker environment with `Ctrl+C` in the `start.sh` terminal.
+3. Run the reboot utility.
+
+Reboot all enabled drones:
+
+```bash
+./docker/reset.sh
+```
+
+Reboot one drone:
+
+```bash
+./docker/reset.sh cf_1
+```
+
+Reboot selected drones:
+
+```bash
+./docker/reset.sh cf_1 cf_4 cf_7
+```
+
+The utility reads the radio URIs from the same:
+
+```text
+config/crazyflies.yaml
+```
+
+After the reboot completes, restart the environment:
+
+```bash
+./docker/start.sh
+./docker/ros.sh --real
+```
+
+## 16. Recommended workflow
 
 ### Simulation
 
 Terminal 1:
 
 ```bash
-./docker/start.sh --sim
+./docker/start.sh
 ```
 
 Terminal 2:
 
 ```bash
+./docker/ros.sh --sim
+```
+
+Terminal 3:
+
+```bash
 ./docker/shell.sh
 ```
 
-Then run:
+Run:
 
 ```bash
 python3 /workspace/scripts/full_state.py \
@@ -552,19 +674,13 @@ python3 /workspace/scripts/full_state.py \
 
 ### Real flight
 
-Terminal 1:
+Keep the same Docker container running and start the real ROS backend:
 
 ```bash
-./docker/start.sh --real
+./docker/ros.sh --real
 ```
 
-Terminal 2:
-
-```bash
-./docker/shell.sh
-```
-
-Then run the same experiment with:
+In a work shell:
 
 ```bash
 python3 /workspace/scripts/full_state.py \
@@ -572,6 +688,8 @@ python3 /workspace/scripts/full_state.py \
   --trajectory <trajectory> \
   --drones <names>
 ```
+
+Stopping `ros.sh` does not stop the container. Stopping `start.sh` stops the complete project environment and all attached sessions.
 
 ## Safety
 
