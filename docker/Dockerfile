@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-rosdep \
     python3-colcon-common-extensions \
     python3-dev \
+    python3-matplotlib \
     build-essential \
     swig \
     libboost-program-options-dev \
@@ -112,9 +113,16 @@ RUN rosdep init 2>/dev/null || true \
 # La documentación oficial de Crazyswarm2 pide instalarlo
 # explícitamente.
 # ------------------------------------------------------------
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ros-jazzy-motion-capture-tracking \
+RUN git clone --branch 1.0.9 --recurse-submodules \
+        https://github.com/IMRCLab/motion_capture_tracking.git \
+        /opt/crazyswarm2_ws/src/motion_capture_tracking \
+    && cd /opt/crazyswarm2_ws/src/motion_capture_tracking/motion_capture_tracking/deps/libmotioncapture \
+    && git checkout 24321e4c1c923a1bc5d6cecdaa7834f11b79d8f2 \
+    && git submodule update --init --recursive \
+    && apt-get update \
+    && cd /opt/crazyswarm2_ws \
+    && source /opt/ros/jazzy/setup.bash \
+    && rosdep install --from-paths src --ignore-src --rosdistro jazzy -y \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -168,5 +176,17 @@ RUN apt-get update \
 
     
 WORKDIR /opt/crazyswarm2_ws
+
+
+
+# Prompt con hora, indicador Docker y colores
+RUN printf '%s\n' \
+    'export PS1='\''\[\e[38;5;141m\][\t] \[\e[1;38;5;226m\][docker] \[\e[0;38;5;205m\]\u@\h \[\e[38;5;51m\]\w \[\e[1;38;5;208m\]❯ \[\e[0m\]'\''' \
+    "alias ls='ls --color=auto'" \
+    "alias grep='grep --color=auto'" \
+    >> /root/.bashrc
+
+
+
 
 CMD ["/bin/bash"]
